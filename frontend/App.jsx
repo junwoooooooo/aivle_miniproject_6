@@ -92,7 +92,9 @@ function App() {
       const book = books.find(b => String(b.id) === String(id));
       const updatedBook = await request(`/books/${id}/likes`, {
         method: 'PATCH',
-        body: JSON.stringify({ likes: already ? book.likes - 1 : book.likes + 1 }),
+        body: JSON.stringify({
+          likes: already ? Math.max(0, (book.likes ?? 0) - 1) : (book.likes ?? 0) + 1
+        }),
       });
       setBooks((prevBooks) =>
         prevBooks.map((b) => String(b.id) === String(id) ? updatedBook : b)
@@ -121,7 +123,9 @@ function App() {
       const review = reviews.find(r => r.id === id);
       const updated = await request(`/reviews/${id}/likes`, {
         method: 'PATCH',
-        body: JSON.stringify({ likes: already ? review.likes - 1 : review.likes + 1 }),
+        body: JSON.stringify({
+          likes: already ? Math.max(0, (review.likes ?? 0) - 1) : (review.likes ?? 0) + 1
+        }),
       });
       setReviews(reviews.map((r) => (r.id === id ? updated : r)));
       if (already) {

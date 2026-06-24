@@ -69,9 +69,10 @@ public class ReviewService {
     public Review likeReview(Long id, Integer likes) {
         Review review = getReview(id);
         if (likes != null) {
-            review.setLikes(likes);
+            review.setLikes(Math.max(0, likes));
         } else {
-            review.setLikes(review.getLikes() + 1);
+            Integer currentLikes = review.getLikes();
+            review.setLikes(currentLikes == null ? 1 : currentLikes + 1);
         }
         return reviewRepository.save(review);
     }
