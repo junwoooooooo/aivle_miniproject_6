@@ -15,7 +15,7 @@ phases:
       # 1. AWS ECR 저장소 로그인 인증
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
       # 2. AWS EKS 쿠버네티스 클러스터 자격증명 갱신
-      - aws eks update-kubeconfig --name user03-cluster --region $AWS_DEFAULT_REGION
+      # - aws eks update-kubeconfig --name user03-cluster --region $AWS_DEFAULT_REGION
 
       - echo "빌드 사전 준비"
       - cd backend
@@ -39,10 +39,10 @@ phases:
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/backend:latest
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/frontend:latest
 
-      - echo "5. 쿠버네티스(EKS)에 최종 자동 배포 시작..."
-      - kubectl apply -f k8s/backend-deploy.yaml
-      - kubectl apply -f k8s/frontend-deploy.yaml
-      - echo "모든 파이프라인 성공적으로 완료!"
+      #- echo "5. 쿠버네티스(EKS)에 최종 자동 배포 시작..."
+      #- kubectl apply -f k8s/backend-deploy.yaml
+      #- kubectl apply -f k8s/frontend-deploy.yaml
+      - echo "모든 파이프라인 성공적으로 완료! Build stage completed. EKS deployment will run after manual approval."
     finally:
       - echo "finally 블록 실행"
 
