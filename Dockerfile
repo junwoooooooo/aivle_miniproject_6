@@ -1,5 +1,5 @@
 # 프론트엔드(React/Vite) — 소스는 frontend/ 에 있음 (빌드 컨텍스트=레포 루트)
-FROM public.ecr.aws/docker/library/node:18 AS build
+FROM public.ecr.aws/docker/library/node:20 AS build
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm install
