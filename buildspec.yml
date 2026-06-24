@@ -6,9 +6,9 @@ phases:
       java: corretto17
     commands:
       # 쿠버네티스 조종 도구(kubectl) 설치
-      - echo "Installing kubectl..."
-      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-      - chmod +x ./kubectl && mv ./kubectl /usr/local/bin/
+      #- echo "Installing kubectl..."
+      #- curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      #- chmod +x ./kubectl && mv ./kubectl /usr/local/bin/
   pre_build:
     commands:
       - echo "AWS 로그인 및 EKS 연결 설정..."
