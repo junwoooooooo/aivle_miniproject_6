@@ -18,6 +18,10 @@ spec:
           image: 416225317325.dkr.ecr.ap-northeast-2.amazonaws.com/backend:latest
           ports:
             - containerPort: 8080
+          # RDS 접속정보를 Secret(db-secret)에서 주입 (DB_URL/DB_DRIVER/DB_USERNAME/DB_PASSWORD)
+          envFrom:
+            - secretRef:
+                name: db-secret
           resources:
             requests:
               cpu: "200m" # 오토스케일링 기준 측정을 위한 CPU 기본 할당량

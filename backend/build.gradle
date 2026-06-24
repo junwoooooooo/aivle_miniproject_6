@@ -27,7 +27,8 @@ dependencies {
 
 	compileOnly 'org.projectlombok:lombok'
 
-	runtimeOnly 'com.h2database:h2'
+	runtimeOnly 'com.h2database:h2'          // 로컬 개발용
+	runtimeOnly 'com.mysql:mysql-connector-j' // 배포(RDS MySQL)용
 
 	annotationProcessor 'org.projectlombok:lombok'
 
