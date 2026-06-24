@@ -15,7 +15,7 @@ phases:
       # 1. AWS ECR 저장소 로그인 인증
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
       # 2. AWS EKS 쿠버네티스 클러스터 자격증명 갱신
-      - aws eks update-kubeconfig --name aivle-eks-cluster --region $AWS_DEFAULT_REGION
+      - aws eks update-kubeconfig --name user03-cluster --region $AWS_DEFAULT_REGION
 
       - echo "빌드 사전 준비"
       - cd backend

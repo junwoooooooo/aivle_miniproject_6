@@ -16,6 +16,9 @@ dist-ssr
 backend/data/
 .vite/
 
+# K8s 실제 Secret(비밀번호 포함) — 커밋 금지. 예시는 db-secret.example.yaml
+k8s/db-secret.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
