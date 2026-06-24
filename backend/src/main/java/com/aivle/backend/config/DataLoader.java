@@ -10,6 +10,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
 import java.time.LocalDateTime;
@@ -24,6 +25,7 @@ public class DataLoader implements CommandLineRunner {
     private final ReviewRepository reviewRepository;
 
     @Override
+    @Transactional
     public void run(String... args) throws Exception {
 
         if (bookRepository.count() > 0) {
