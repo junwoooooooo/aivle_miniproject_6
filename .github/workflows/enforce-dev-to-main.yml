@@ -1,0 +1,16 @@
+name: enforce-dev-to-main
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  check-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: dev(같은 레포)에서만 허용
+        if: github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "❌ main에는 이 레포의 dev 브랜치에서만 PR 가능합니다."
+          echo "현재 출처: ${{ github.event.pull_request.head.repo.full_name }}:${{ github.head_ref }}"
+          exit 1
+      - name: 통과
+        run: echo "✅ dev에서 온 PR 확인. 통과."
