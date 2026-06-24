@@ -44,8 +44,8 @@ public class BookController {
     }
 
     @PatchMapping("/{id}/likes")
-    public Book likeBook(@PathVariable Long id) {
-        return bookService.likeBook(id);
+    public Book likeBook(@PathVariable Long id, @RequestBody(required = false) Book body) {
+        return bookService.likeBook(id, body != null ? body.getLikes() : null);
     }
 
     @PatchMapping("/{id}/cover")
