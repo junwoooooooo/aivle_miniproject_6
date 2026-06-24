@@ -68,17 +68,13 @@ public class BookService {
     }
 
     @Transactional
-    public Book likeBook(Long id, Integer likes) {
+    public Book likeBook(Long id) {
         Book book = getBook(id);
-        if (likes != null) {
-            book.setLikes(Math.max(0, likes));
-        } else {
-            Integer currentLikes = book.getLikes();
-            book.setLikes(currentLikes == null ? 1 : currentLikes + 1);
-        }
+        int currentLikes = book.getLikes() == null ? 0 : Math.max(0, book.getLikes());
+        book.setLikes(currentLikes + 1);
         return bookRepository.save(book);
     }
-    
+
     @Transactional
     public Book addViews(Long id) {
         Book book = getBook(id);
