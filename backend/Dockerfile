@@ -1,9 +1,12 @@
-FROM gradle:7.6-jdk17 AS build
-COPY --chown=gradle:gradle . /home/gradle/src
-WORKDIR /home/gradle/src
-RUN gradle build --no-daemon -x test
+# 빌드: gradle wrapper(9.5.1) 사용 — Spring Boot 4.x 호환 (이미지의 구버전 gradle 대신)
+FROM eclipse-temurin:17-jdk AS build
+WORKDIR /src
+COPY . .
+RUN chmod +x ./gradlew && ./gradlew build --no-daemon -x test
 
-FROM openjdk:17-slim
+# 런타임: bootJar만 복사 (-plain.jar 제외)
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+COPY --from=build /src/build/libs/*-SNAPSHOT.jar app.jar
 EXPOSE 8080
-COPY --from=build /home/gradle/src/build/libs/*.jar app.jar
-ENTRYPOINT ["java", "-jar", "/app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

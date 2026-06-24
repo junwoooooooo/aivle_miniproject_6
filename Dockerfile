@@ -1,8 +1,9 @@
+# 프론트엔드(React/Vite) — 소스는 frontend/ 에 있음 (빌드 컨텍스트=레포 루트)
 FROM node:18 AS build
 WORKDIR /app
-COPY package*.json ./
+COPY frontend/package*.json ./
 RUN npm install
-COPY . .
+COPY frontend/ ./
 RUN npm run build
 
 FROM nginx:alpine

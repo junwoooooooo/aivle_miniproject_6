@@ -15,7 +15,7 @@ spec:
       containers:
         - name: backend
           # AWS ECR에 등록될 내 백엔드 도커 이미지 주소
-          image: 416225317325.dkr.ecr.ap-northeast-2.amazonaws.com/backend:latest
+          image: 416225317325.dkr.ecr.us-east-1.amazonaws.com/backend:latest
           ports:
             - containerPort: 8080
           # RDS 접속정보를 Secret(db-secret)에서 주입 (DB_URL/DB_DRIVER/DB_USERNAME/DB_PASSWORD)
