@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: backend-deployment
 spec:
-  replicas: 2  # 기본적으로 서버 2대 상시 가동 (무상태 가용성)
+  replicas: 1  # H2 단계 임시: 파드 1개(데이터 일관성). RDS 전환 후 2로 + HPA 복구
   selector:
     matchLabels:
       app: backend
@@ -19,9 +19,11 @@ spec:
           ports:
             - containerPort: 8080
           # RDS 접속정보를 Secret(db-secret)에서 주입 (DB_URL/DB_DRIVER/DB_USERNAME/DB_PASSWORD)
+          # optional:true → secret 없으면(H2 단계) 무시하고 application.yaml 기본값(H2)로 동작
           envFrom:
             - secretRef:
                 name: db-secret
+                optional: true
           resources:
             requests:
               cpu: "200m" # 오토스케일링 기준 측정을 위한 CPU 기본 할당량
@@ -35,25 +37,25 @@ spec:
   selector:
     app: backend
   ports:
-    - port: 80
+    - port: 8080       # nginx가 backend-service:8080 으로 호출하므로 서비스 포트도 8080
       targetPort: 8080
----
-# 오토스케일링(HPA) 설정: CPU 사용량 60% 넘으면 최대 10대까지 파드(서버) 자동 증설
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: backend-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: backend-deployment
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 60
+# ---
+# H2 단계에서는 HPA 비활성화 (단일 파드 유지 위해). RDS 전환 후 아래 주석 해제.
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: backend-hpa
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: backend-deployment
+#   minReplicas: 2
+#   maxReplicas: 10
+#   metrics:
+#     - type: Resource
+#       resource:
+#         name: cpu
+#         target:
+#           type: Utilization
+#           averageUtilization: 60
