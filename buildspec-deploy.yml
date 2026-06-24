@@ -1,0 +1,35 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo "Installing kubectl for EKS deploy..."
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x ./kubectl && mv ./kubectl /usr/local/bin/
+
+  pre_build:
+    commands:
+      - echo "Connecting to EKS cluster..."
+      - aws eks update-kubeconfig --name user03-cluster --region us-east-1
+      - kubectl version --client=true
+      - kubectl get nodes -o wide
+
+  build:
+    commands:
+      - echo "Deploying backend and frontend manifests to EKS..."
+      - kubectl apply -f k8s/backend-deploy.yaml
+      - kubectl apply -f k8s/frontend-deploy.yaml
+
+      - echo "Restarting deployments to pull latest ECR images..."
+      - kubectl rollout restart deployment/backend-deployment -n default
+      - kubectl rollout restart deployment/frontend-deployment -n default
+
+      - echo "Waiting for rollout completion..."
+      - kubectl rollout status deployment/backend-deployment -n default --timeout=180s
+      - kubectl rollout status deployment/frontend-deployment -n default --timeout=180s
+
+  post_build:
+    commands:
+      - echo "EKS deployment completed."
+      - kubectl get all -n default -o wide
+      - kubectl get svc -n default -o wide
