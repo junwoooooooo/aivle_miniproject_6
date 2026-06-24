@@ -4,20 +4,46 @@ phases:
   install:
     runtime-versions:
       java: corretto17
+    commands:
+      # 쿠버네티스 조종 도구(kubectl) 설치
+      - echo "Installing kubectl..."
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x ./kubectl && mv ./kubectl /usr/local/bin/
   pre_build:
     commands:
-      - echo "빌드 시작"
+      - echo "AWS 로그인 및 EKS 연결 설정..."
+      # 1. AWS ECR 저장소 로그인 인증
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      # 2. AWS EKS 쿠버네티스 클러스터 자격증명 갱신
+      - aws eks update-kubeconfig --name aivle-eks-cluster --region $AWS_DEFAULT_REGION
+
+      - echo "빌드 사전 준비"
       - cd backend
       - chmod +x ./gradlew
   build:
     commands:
-      - echo "Gradle 빌드 중..."
+      - echo "1. 백엔드 Gradle 빌드 중..."
       - ./gradlew build -x test
-      - echo "빌드 완료"
+
+      - echo "2. 백엔드 Docker 이미지 생성..."
+      # 현재 위치가 backend 폴더이므로 여기서 백엔드 이미지 빌드
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/backend:latest .
+
+      - echo "3. 프론트엔드 Docker 이미지 생성..."
+      # 최상위 루트로 복귀하여 프론트엔드 이미지 빌드
+      - cd ..
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/frontend:latest .
+  post_build:
+    commands:
+      - echo "4. 구워낸 Docker 이미지들을 AWS ECR 저장소로 푸시..."
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/backend:latest
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/frontend:latest
+
+      - echo "5. 쿠버네티스(EKS)에 최종 자동 배포 시작..."
+      - kubectl apply -f k8s/backend-deploy.yaml
+      - kubectl apply -f k8s/frontend-deploy.yaml
+      - echo "모든 파이프라인 성공적으로 완료!"
     finally:
       - echo "finally 블록 실행"
 
-artifacts:
-  base-directory: backend/build/libs
-  files:
-    - '*.jar'
+# artifacts 블록은 쿠버네티스가 이미지를 직접 가져가므로 더 이상 필요하지 않아 제거했습니다.

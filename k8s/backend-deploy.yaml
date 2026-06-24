@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+spec:
+  replicas: 2  # 기본적으로 서버 2대 상시 가동 (무상태 가용성)
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          # AWS ECR에 등록될 내 백엔드 도커 이미지 주소
+          image: 416225317325.dkr.ecr.ap-northeast-2.amazonaws.com/backend:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "200m" # 오토스케일링 기준 측정을 위한 CPU 기본 할당량
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  type: ClusterIP  # 프론트엔드만 접근하면 되므로 내부 IP로 은닉
+  selector:
+    app: backend
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# 오토스케일링(HPA) 설정: CPU 사용량 60% 넘으면 최대 10대까지 파드(서버) 자동 증설
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
