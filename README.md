@@ -1,700 +1,272 @@
-# 5차 미니 프로젝트 - 도서관리시스템 서버 개발
+# 6차 미니 프로젝트 - EKS 기반 도서 서비스 CI/CD 및 운영 자동화
 
 ## 1. 프로젝트 개요
 
-본 프로젝트는 기존 Frontend 미니프로젝트에서 사용하던 `json-server` 기반 데이터 관리를 Spring Boot 서버로 전환한 도서관리시스템이다.
+본 프로젝트는 5차 미니프로젝트에서 구축한 Spring Boot 기반 도서관리시스템을 AWS 환경으로 이전하여, Kubernetes(EKS) 기반의 CI/CD 자동 배포 및 운영 모니터링 체계를 구축한 프로젝트이다.
 
-사용자는 회원가입과 로그인을 통해 서비스를 이용할 수 있으며, 도서를 등록, 조회, 수정, 삭제할 수 있다. 또한 도서에 대한 리뷰를 작성하고 관리할 수 있으며, 도서 제목과 내용을 기반으로 OpenAI Image Generation API를 호출하여 AI 표지 이미지를 생성할 수 있다.
-
-생성된 표지 이미지는 Frontend에서 Data URL 형태로 변환한 뒤 Backend에 전달되어 도서 정보와 함께 저장된다.
+GitHub에 코드를 Push하면 AWS CodePipeline이 자동으로 동작하여 Docker 이미지 빌드, ECR 저장, 운영자 수동 승인, EKS 배포까지 무중단으로 진행된다. 또한 CloudWatch를 통한 로그/지표/알람 모니터링과 HPA 기반 오토스케일링을 적용하여 트래픽 변화에 자동으로 대응할 수 있는 운영 환경을 구성하였다.
 
 본 프로젝트의 핵심 목표는 다음과 같다.
 
-* Spring Boot 기반 REST API 서버 구현
-* React Frontend와 Spring Boot Backend 연동
-* 회원가입 및 로그인 기능 구현
-* JWT 기반 인증 처리
-* 사용자 권한에 따른 관리자 페이지 구현
-* 도서 CRUD 기능 구현
-* 리뷰 CRUD 기능 구현
-* 도서 및 리뷰 좋아요 기능 구현
-* OpenAI API를 활용한 AI 표지 이미지 생성 및 저장
-* 전역 예외 처리와 유효성 검증 적용
-* GitHub 기반 팀 협업 및 최종 시연
-
----
+- AWS 환경(EKS, ECR, CodePipeline, CodeBuild) 기반 인프라 구축
+- Docker 기반 Frontend/Backend 컨테이너화
+- GitHub 브랜치 전략(main/dev) 및 PR 기반 협업 도입
+- CodePipeline을 통한 CI/CD 자동 배포 구현
+- Manual Approval 단계 및 SNS 이메일 알림 연동
+- EKS 클러스터에 Frontend/Backend 배포 및 LoadBalancer 외부 노출
+- Rolling Update를 통한 무중단 배포 구현
+- HPA(Horizontal Pod Autoscaler) 기반 오토스케일링 구현
+- 기존 H2 file DB를 RDS(MySQL)로 전환
+- CloudWatch Logs/Dashboard/Alarm을 통한 운영 모니터링 체계 구축
+- 장애 상황(빌드 실패, 배포 실패, 파드 장애) 재현 및 복구 실습
 
 ## 2. 팀원 R&R
 
-| 이름  | 역할               | 담당 내용                                                         |
-| --- | ---------------- | ------------------------------------------------------------- |
-| 이은선 | PM / 문서화         | API 정의서, README.md 작성, 프로젝트 총괄 점검                             |
-| 한준우 | Backend 개발       | Entity 작성, Repository 관리, H2 콘솔, Lombok 적용                    |
-| 서한석 | Backend 개발       | Service 클래스, 비즈니스 로직, 예외 처리, @Transactional                   |
-| 최준석 | Backend 개발       | Controller 관리, CRUD 엔드포인트 점검, @Valid + @NotBlank, Postman 테스트 |
-| 조은진 | AI / Frontend 연동 | Frontend 코드 분석 및 연동, OpenAI 표지 흐름, E2E 시연                     |
-| 양경동 | 통합 / 예외 처리       | WebConfig, SecurityConfig, CORS, 전역 예외 처리, 풀스택 디버깅, 트러블슈팅     |
+| 이름 | 역할 | 담당 내용 |
+|------|------|-----------|
+| 한준우 | 조장 / Dev | 프로젝트 총괄, 개발 진행 관리 |
+| 이성민 | 발표자 / Dev | 발표 진행, 개발 |
+| 박시우 | PPT 제작자 / Monitoring | 발표 자료 제작, CloudWatch 모니터링 구성 |
+| 양경동 | PPT 제작자 / Dev | 발표 자료 제작, 개발 |
+| 정휘재 | 서기 / Infra | 회의 기록, 인프라(EKS, 네트워크 등) 구성 |
+| 서한석 | 검토담당자 / Monitoring | 결과물 검토, CloudWatch 모니터링 구성 |
+| 최준석 | 타임키퍼 / Infra | 일정 관리, 인프라 구성 |
 
----
+## 3. 전체 아키텍처
 
-## 3. 주요 기능
+```
+GitHub (main/dev)
+    |
+    | Push / Pull Request
+    v
+AWS CodePipeline
+    |
+    | Source
+    v
+AWS CodeBuild (Build)
+    |
+    | Docker Build
+    v
+Amazon ECR (이미지 저장)
+    |
+    | Manual Approval (SNS 이메일 알림)
+    v
+AWS CodeBuild (DeployToEKS)
+    |
+    | kubectl apply / rollout
+    v
+Amazon EKS Cluster
+ ├─ frontend Pod / Service (LoadBalancer)
+ └─ backend Pod / Service
+    |
+    v
+Amazon RDS (MySQL)
+```
 
-### 3.1 인증 및 사용자 기능
+모니터링 흐름은 다음과 같다.
 
-* 회원가입
-* 로그인
-* 로그아웃
-* JWT Token 기반 인증
-* 로그인 사용자 정보 저장
-* 사용자 권한 관리
-* 마이페이지에서 내가 등록한 도서 및 작성한 리뷰 확인
-* 관리자 권한 사용자만 관리자 페이지 접근 가능
-
-### 3.2 관리자 기능
-
-* 전체 회원 목록 조회
-* 전체 도서 관리
-* 전체 리뷰 관리
-* 관리자 권한으로 도서 삭제
-* 관리자 권한으로 리뷰 삭제
-
-### 3.3 도서 관리 기능
-
-* 도서 목록 조회
-* 도서 상세 조회
-* 신규 도서 등록
-* 도서 정보 수정
-* 도서 좋아요 증가 및 취소
-* 도서 삭제
-* AI 생성 표지 이미지 저장
-* 태그 등록 및 자동 태그 생성
-
-### 3.4 리뷰 관리 기능
-
-* 전체 리뷰 조회
-* 특정 도서의 리뷰 조회
-* 리뷰 등록
-* 리뷰 수정
-* 리뷰 좋아요 증가 및 취소
-* 리뷰 삭제
-
-### 3.5 AI 표지 이미지 생성 기능
-
-* 도서 제목, 작가명, 내용을 기반으로 이미지 생성 프롬프트 구성
-* Frontend에서 OpenAI Image Generation API 직접 호출
-* OpenAI 응답의 `b64_json` 값을 Data URL 형식으로 변환
-* 변환된 표지 이미지를 Backend에 저장
-* 저장된 표지를 도서 목록 및 상세 화면에 반영
-
-### 3.6 AI 태그 자동 생성 기능
-
-* 도서 내용을 기반으로 OpenAI API에 태그 생성을 요청
-* 정해진 카테고리 중 도서에 적합한 태그를 자동 추천
-* 생성된 태그를 도서 등록 정보에 반영
-
----
+```
+CodeBuild / EKS
+    |
+    v
+Amazon CloudWatch
+ ├─ Logs (빌드/배포 로그 수집)
+ ├─ Dashboard (CPU 등 지표 시각화)
+ └─ Alarm (이상 감지)
+        |
+        v
+   Amazon SNS → 이메일 알림
+```
 
 ## 4. 기술 스택
 
-| 구분       | 기술                                                       |
-| -------- | -------------------------------------------------------- |
-| Frontend | React 19, Vite, JavaScript, React Router, fetch API      |
-| Backend  | Java 17, Spring Boot, Spring MVC, Spring Data JPA        |
-| Security | Spring Security, JWT, BCrypt                             |
-| Database | H2 Database                                              |
-| ORM      | JPA, Hibernate                                           |
-| Library  | Lombok, Validation                                       |
-| AI API   | OpenAI Image Generation API, OpenAI Chat Completions API |
-| 협업       | GitHub                                                   |
-| API 테스트  | Postman                                                  |
-| 개발 환경    | IntelliJ IDEA, VS Code                                   |
+| 구분 | 기술 |
+|------|------|
+| Frontend | React 19, Vite, JavaScript |
+| Backend | Java 17, Spring Boot, Spring MVC, Spring Data JPA |
+| Container | Docker |
+| Container Orchestration | Amazon EKS, Kubernetes (Pod, Deployment, Service, HPA) |
+| CI/CD | AWS CodePipeline, AWS CodeBuild |
+| Image Registry | Amazon ECR |
+| Database | Amazon RDS (MySQL) |
+| 알림 | Amazon SNS |
+| 모니터링 | Amazon CloudWatch (Logs, Dashboard, Alarm) |
+| 네트워크 / 노출 | LoadBalancer (Kubernetes Service) |
+| 인증 정보 관리 | Kubernetes Secret |
+| 협업 | GitHub (main/dev 브랜치 전략, Pull Request) |
+| 개발 환경 | IntelliJ IDEA, VS Code |
 
----
+## 5. CI/CD 파이프라인 구성
 
-## 5. 시스템 구성
+### 5.1 브랜치 전략 (main/dev)
 
-```txt
-React Frontend
-    |
-    | HTTP Request
-    | Authorization: Bearer {token}
-    v
-Spring Boot Backend
-    |
-    | JPA
-    v
-H2 Database
-```
+1. main/dev 브랜치 생성
+2. 개발 내용 Push 및 Pull Request 생성 (팀장에게 수정 요청)
+3. 코드 리뷰 후 Merge
 
-AI 표지 생성 흐름은 다음과 같다.
+### 5.2 파이프라인 단계
 
-```txt
-React
-  → OpenAI API 호출
-  → b64_json 응답 수신
-  → Data URL 변환
-  → Spring Boot Backend로 표지 저장 요청
-  → H2 Database에 coverImageUrl 저장
-```
+| 단계 | 설명 |
+|------|------|
+| Source | GitHub 소스 변경 감지 |
+| Build | Dockerfile 기반 Frontend/Backend 이미지 빌드 후 ECR 저장 |
+| ManualApproval | 운영자 승인 단계 (SNS 이메일 알림) |
+| DeployToEKS | CodeBuild에서 kubectl apply / rollout 명령 수행하여 EKS에 배포 |
+| Deploy | 산출물 보관 |
 
-인증 흐름은 다음과 같다.
+운영자 승인 한 번만 거치면 전체 배포가 자동화되어, 사람의 개입을 최소화한 안정적인 배포 체계를 구축하였다.
 
-```txt
-회원가입
-  → POST /auth/register
-  → 사용자 정보 저장
+## 6. Kubernetes 리소스 구성
 
-로그인
-  → POST /auth/login
-  → JWT Token 발급
-  → Frontend localStorage에 token, username, role 저장
+- **frontend / backend Pod**: 각각 Deployment로 관리
+- **frontend-service**: LoadBalancer 타입으로 외부 접속 제공
+- **backend-service**: 내부 통신용 Service
+- **HPA(backend)**: 최소 2개 ~ 최대 10개, CPU 목표 사용률 60%
+- **metrics-server**: CPU 사용량 측정을 위한 EKS 관리형 애드온
+- **Secret**: RDS 접속 정보(DB 계정, 비밀번호 등)를 backend Pod에 주입
 
-인증이 필요한 요청
-  → Authorization: Bearer {token}
-  → JwtFilter에서 토큰 검증
-  → 사용자 권한에 따라 API 접근 허용
-```
+## 7. Auto Scaling / Rolling Update
 
----
+### 7.1 오토스케일링 (HPA)
 
-## 6. 프로젝트 구조
+- backend 최소 2개 ~ 최대 10개, CPU 목표 60%로 HPA 구성
+- metrics-server 연동으로 CPU 사용량 측정
+- 부하 테스트로 CPU 사용량을 높이자 파드가 2개 → 10개까지 자동 증설되었고, 부하가 사라지면 다시 최소 2개로 축소됨을 확인
 
-```txt
-aivle_miniproject_v2
-├─ backend
-│  ├─ src
-│  │  └─ main
-│  │     ├─ java
-│  │     │  └─ com
-│  │     │     └─ aivle
-│  │     │        └─ backend
-│  │     │           ├─ config
-│  │     │           ├─ controller
-│  │     │           ├─ entity
-│  │     │           ├─ exception
-│  │     │           ├─ repository
-│  │     │           └─ service
-│  │     └─ resources
-│  │        └─ application.yaml
-│  ├─ build.gradle
-│  └─ settings.gradle
-│
-├─ frontend
-│  ├─ components
-│  ├─ pages
-│  ├─ App.jsx
-│  ├─ App.css
-│  └─ main.jsx
-│
-├─ public
-├─ screenshots
-├─ API정의서.md
-├─ README.md
-├─ package.json
-├─ server.cjs
-└─ vite.config.js
-```
+### 7.2 Rolling Update (무중단 배포)
 
----
+- 백엔드를 새 버전으로 배포하여 무중단 업데이트 동작을 확인
+- 기존 버전 파드가 새 버전으로 하나씩 순차 교체되었고, 서비스 중단 없이 배포가 완료됨
 
-## 7. Backend 주요 구조
+## 8. 데이터베이스 전환 (H2 → RDS)
 
-### 7.1 Entity
+기존 5차 프로젝트에서 사용하던 H2 file DB는 Pod 재시작 시 데이터가 유지되지 않는 한계가 있어, RDS(MySQL)로 전환하였다. DB 접속 정보는 Kubernetes Secret을 통해 backend Pod에 주입하여 보안성을 확보하였다.
 
-#### User
+## 9. 모니터링 및 알림 (CloudWatch / SNS)
 
-회원 정보를 저장하는 엔티티이다.
+CloudWatch를 통해 운영 중인 서비스를 다음 세 가지 방식으로 모니터링한다.
 
-| 필드명         | 설명        |
-| ----------- | --------- |
-| `id`        | 사용자 ID    |
-| `username`  | 로그인 아이디   |
-| `password`  | 암호화된 비밀번호 |
-| `role`      | 사용자 권한    |
-| `createdAt` | 가입 시각     |
+| 구성 요소 | 설명 |
+|-----------|------|
+| Logs | 빌드·배포 로그 자동 수집 (`02_book_build`, `02_book_deploy`) |
+| Dashboard | CPU 사용량 등 주요 지표를 그래프와 테이블로 시각화 |
+| Alarm | CodeBuild 빌드 실패, 배포 실패, ELB 비정상 대상 수, 파드 무한 재시작, 메모리 한계 도달, HTTP 에러 등 이상 상황 감지 |
 
-#### Book
+CloudWatch Alarm이 발생하면 SNS Topic을 통해 운영자에게 이메일 알림이 전송되도록 구성하였으며, `codebuild-failed-alarm`이 실제 빌드 실패 시 정상적으로 SNS 메일을 전송함을 확인하였다.
 
-도서 정보를 저장하는 엔티티이다.
+## 10. 실행 방법
 
-| 필드명             | 설명                     |
-| --------------- | ---------------------- |
-| `id`            | 도서 ID                  |
-| `title`         | 도서 제목                  |
-| `author`        | 작가명                    |
-| `content`       | 도서 내용                  |
-| `coverImageUrl` | 표지 이미지 URL 또는 Data URL |
-| `likes`         | 좋아요 수                  |
-| `tags`          | 도서 태그                  |
-| `createdAt`     | 생성 시각                  |
-| `updatedAt`     | 수정 시각                  |
-| `createdBy`     | 등록 사용자                 |
+### 10.1 사전 준비
 
-#### Review
+- AWS 계정 및 EKS, ECR, RDS, CodePipeline, CodeBuild, CloudWatch, SNS 리소스 구성
+- `kubectl`, `aws-cli`가 설치되고 EKS 클러스터에 접근 가능한 환경
 
-도서 리뷰 정보를 저장하는 엔티티이다.
-
-| 필드명         | 설명            |
-| ----------- | ------------- |
-| `id`        | 리뷰 ID         |
-| `bookId`    | 리뷰가 연결된 도서 ID |
-| `bookTitle` | 리뷰가 연결된 도서 제목 |
-| `nickname`  | 리뷰 작성자 닉네임    |
-| `content`   | 리뷰 내용         |
-| `likes`     | 리뷰 좋아요 수      |
-| `createdAt` | 생성 시각         |
-| `updatedAt` | 수정 시각         |
-| `createdBy` | 작성 사용자        |
-
----
-
-## 8. API 요약
-
-자세한 요청/응답 구조는 `API정의서.md`를 참고한다.
-
-### 8.1 Auth API
-
-| 기능   | Method | URL              | 인증  |
-| ---- | ------ | ---------------- | --- |
-| 회원가입 | POST   | `/auth/register` | 불필요 |
-| 로그인  | POST   | `/auth/login`    | 불필요 |
-
-### 8.2 Books API
-
-| 기능             | Method | URL                 | 인증  |
-| -------------- | ------ | ------------------- | --- |
-| 도서 목록 조회       | GET    | `/books`            | 불필요 |
-| 도서 상세 조회       | GET    | `/books/{id}`       | 불필요 |
-| 도서 등록          | POST   | `/books`            | 필요  |
-| 도서 수정          | PATCH  | `/books/{id}`       | 필요  |
-| AI 표지 이미지 저장   | PATCH  | `/books/{id}/cover` | 필요  |
-| 도서 좋아요 증가 및 취소 | PATCH  | `/books/{id}/likes` | 필요  |
-| 도서 삭제          | DELETE | `/books/{id}`       | 필요  |
-
-### 8.3 Reviews API
-
-| 기능             | Method | URL                        | 인증  |
-| -------------- | ------ | -------------------------- | --- |
-| 리뷰 전체 조회       | GET    | `/reviews`                 | 불필요 |
-| 특정 도서 리뷰 조회    | GET    | `/reviews?bookId={bookId}` | 불필요 |
-| 리뷰 등록          | POST   | `/reviews`                 | 필요  |
-| 리뷰 수정          | PATCH  | `/reviews/{id}`            | 필요  |
-| 리뷰 좋아요 증가 및 취소 | PATCH  | `/reviews/{id}/likes`      | 필요  |
-| 리뷰 삭제          | DELETE | `/reviews/{id}`            | 필요  |
-
-### 8.4 Admin API
-
-| 기능        | Method | URL                   | 인증       |
-| --------- | ------ | --------------------- | -------- |
-| 회원 목록 조회  | GET    | `/admin/users`        | ADMIN 필요 |
-| 관리자 도서 삭제 | DELETE | `/admin/books/{id}`   | ADMIN 필요 |
-| 관리자 리뷰 삭제 | DELETE | `/admin/reviews/{id}` | ADMIN 필요 |
-
-### 8.5 OpenAI API
-
-| 기능       | Method | URL                                            | 인증                |
-| -------- | ------ | ---------------------------------------------- | ----------------- |
-| AI 표지 생성 | POST   | `https://api.openai.com/v1/images/generations` | OpenAI API Key 필요 |
-| AI 태그 생성 | POST   | `https://api.openai.com/v1/chat/completions`   | OpenAI API Key 필요 |
-
----
-
-## 9. 실행 방법
-
-### 9.1 Backend 실행
-
-#### 1. Backend 폴더로 이동
+### 10.2 Backend / Frontend 이미지 빌드 (로컬 테스트용)
 
 ```bash
+# Backend
 cd backend
+docker build -t book-backend .
+
+# Frontend
+cd frontend
+docker build -t book-frontend .
 ```
 
-#### 2. Spring Boot 서버 실행
+### 10.3 CI/CD 배포 (운영 환경)
 
-Windows 환경:
+1. dev 브랜치에서 작업 후 Pull Request 생성
+2. 코드 리뷰 후 main 브랜치로 Merge
+3. GitHub Push 감지 시 CodePipeline 자동 실행
+4. CodeBuild에서 Docker 이미지 빌드 후 ECR에 저장
+5. ManualApproval 단계에서 운영자가 SNS 이메일 확인 후 승인
+6. DeployToEKS 단계에서 kubectl apply / rollout 수행
+7. EKS 클러스터에 frontend/backend Pod 배포 완료
+
+### 10.4 서비스 접속
 
 ```bash
-gradlew.bat bootRun
+kubectl get service frontend-service
 ```
 
-Mac 또는 Linux 환경:
+위 명령으로 확인한 LoadBalancer 외부 주소(DNS)로 접속한다.
 
-```bash
-./gradlew bootRun
-```
+## 11. 시연 테스트 시나리오
 
-#### 3. Backend 서버 접속 주소
+### 11.1 CI/CD 배포 테스트
 
-```txt
-http://localhost:8080
-```
+| 순서 | 테스트 항목 | 확인 내용 |
+|------|-------------|-----------|
+| 1 | 코드 Push | GitHub Push 시 CodePipeline이 자동으로 실행되는지 확인 |
+| 2 | Build | CodeBuild에서 Docker 이미지가 정상적으로 빌드되고 ECR에 저장되는지 확인 |
+| 3 | Manual Approval | 운영자에게 SNS 이메일 알림이 전송되고, 승인 후 다음 단계로 진행되는지 확인 |
+| 4 | DeployToEKS | kubectl apply/rollout 명령이 성공적으로 수행되어 EKS에 배포되는지 확인 |
+| 5 | 서비스 접속 | LoadBalancer 주소로 외부에서 정상 접속되는지 확인 |
 
-#### 4. H2 Console 접속
+### 11.2 Auto Scaling 테스트
 
-```txt
-http://localhost:8080/h2-console
-```
+| 순서 | 테스트 항목 | 확인 내용 |
+|------|-------------|-----------|
+| 1 | 부하 발생 | 부하 테스트 도구로 backend에 트래픽을 증가시킴 |
+| 2 | 파드 증설 확인 | CPU 사용량 증가에 따라 파드가 2개에서 최대 10개까지 자동 증설되는지 확인 |
+| 3 | 파드 축소 확인 | 부하 종료 후 파드가 다시 최소 2개로 축소되는지 확인 |
 
-H2 접속 정보:
+### 11.3 Rolling Update 테스트
 
-```txt
-JDBC URL: jdbc:h2:file:./data/bookdb
-User Name: sa
-Password: 1234
-```
+| 순서 | 테스트 항목 | 확인 내용 |
+|------|-------------|-----------|
+| 1 | 신규 버전 배포 | backend 신규 버전 배포 시 기존 파드가 순차적으로 교체되는지 확인 |
+| 2 | 무중단 확인 | 배포 중 서비스 중단 없이 정상 응답하는지 확인 |
 
----
+### 11.4 장애 대응 테스트
 
-### 9.2 Frontend 실행
+| 순서 | 테스트 항목 | 확인 내용 |
+|------|-------------|-----------|
+| 1 | 빌드 실패 재현 | Node 버전 호환성 문제로 빌드가 실패하는 상황을 재현하고 원인 분석 |
+| 2 | 배포 실패 및 롤백 | 잘못된 이미지로 배포 시 ErrImagePull이 발생해도 기존 파드가 유지되는지 확인 후 롤백 수행 |
+| 3 | 파드 강제 삭제 (Auto Healing) | 파드를 강제 삭제했을 때 Kubernetes가 자동으로 새 파드를 생성하여 복구하는지 확인 |
+| 4 | CloudWatch Alarm 확인 | 장애 발생 시 CloudWatch Alarm이 동작하고 SNS 이메일이 전송되는지 확인 |
 
-#### 1. 프로젝트 루트에서 패키지 설치
+## 12. 트러블슈팅
 
-```bash
-npm install
-```
+| 문제 상황 | 원인 | 해결 방법 |
+|-----------|------|-----------|
+| 오토스케일링 시 CPU 메트릭이 수집되지 않음 | 2개 노드가 SchedulingDisabled 상태로 파드가 한 노드에 집중되어 IP 고갈 발생 | `uncordon` 명령으로 노드 스케줄링 해제 |
+| metrics-server 정상 동작 안 함 | aws-node(CNI) 오류로 파드가 IP를 할당받지 못함 | aws-node 재시작으로 복구 |
+| metrics-server 메트릭 전달 실패 | EKS 관리형 애드온에 수동 설정이 충돌(UnsupportedAddonModification) | 수동 설정 제거 후 애드온 재설치 |
+| 프론트엔드 빌드 실패 (`CustomEvent is not defined`) | 빌드 도구(Vite)가 Node 20 이상을 요구하나 Node 18 사용 | Dockerfile의 Node 버전을 18에서 20으로 변경 |
+| 배포 실패 (`ErrImagePull`) | 잘못된 이미지 태그로 배포 시도 | 기존 파드는 유지되어 서비스 중단 없이 롤백 명령으로 즉시 복구 |
+| H2 DB 데이터 유실 | Pod 재시작 시 H2 file DB 데이터가 유지되지 않음 | RDS(MySQL)로 전환하고 Kubernetes Secret으로 접속 정보 주입 |
+| 파드 장애 시 서비스 중단 우려 | 파드 강제 종료/장애 상황 | Kubernetes의 자동 복구(Auto Healing)로 약 2초 내 새 파드 생성 및 복구 |
 
-#### 2. 개발 서버 실행
+## 13. 주요 구현 결과
 
-```bash
-npm run dev
-```
+### 13.1 인프라 자동화 (CI/CD)
 
-#### 3. Frontend 접속 주소
+GitHub Push만으로 빌드부터 배포까지 자동으로 진행되는 CodePipeline을 구축하였다. ManualApproval 단계를 추가하여 운영자가 최종 배포 여부를 결정할 수 있도록 하였으며, SNS 이메일 알림을 통해 승인 요청을 즉시 인지할 수 있도록 구성하였다.
 
-```txt
-http://localhost:5173
-```
+### 13.2 EKS 기반 배포
 
----
+Frontend/Backend를 각각 Docker 이미지로 빌드하여 ECR에 저장하고, EKS 클러스터에 Pod/Service로 배포하였다. frontend-service는 LoadBalancer 타입으로 외부에 노출하여 React 기반 도서 서비스에 접속할 수 있도록 구성하였다.
 
-## 10. 시연 테스트 시나리오
+### 13.3 무중단 배포 및 오토스케일링
 
-### 10.1 회원가입 및 로그인 테스트
+Rolling Update를 통해 신규 버전 배포 시에도 서비스 중단이 발생하지 않음을 확인하였다. 또한 HPA를 통해 backend Pod가 트래픽에 따라 2개에서 최대 10개까지 자동으로 증설/축소되는 것을 부하 테스트로 실증하였다.
 
-| 순서 | 테스트 항목     | 확인 내용                                            |
-| -: | ---------- | ------------------------------------------------ |
-|  1 | 회원가입       | 아이디와 비밀번호를 입력해 회원가입이 되는지 확인                      |
-|  2 | 로그인        | 로그인 성공 시 토큰, 사용자명, 권한이 저장되는지 확인                  |
-|  3 | 로그인 상태 표시  | 상단 메뉴에 현재 로그인한 사용자명이 표시되는지 확인                    |
-|  4 | 로그아웃       | 로그아웃 시 토큰과 사용자 정보가 삭제되는지 확인                      |
-|  5 | 비로그인 접근 제한 | 도서 등록, 수정, 삭제 등 인증이 필요한 기능 접근 시 로그인 안내가 표시되는지 확인 |
+### 13.4 데이터베이스 전환
 
----
+기존 H2 file DB의 데이터 유지 한계를 해결하기 위해 RDS(MySQL)로 전환하였으며, DB 접속 정보는 Kubernetes Secret으로 안전하게 관리하였다.
 
-### 10.2 도서 CRUD 테스트
+### 13.5 모니터링 및 알림 체계 구축
 
-| 순서 | 테스트 항목   | 확인 내용                                           |
-| -: | -------- | ----------------------------------------------- |
-|  1 | 도서 목록 조회 | 메인 화면에서 등록된 도서 목록이 표시되는지 확인                     |
-|  2 | 도서 등록    | 로그인 후 제목, 작가명, 본문을 입력하면 새 도서가 등록되는지 확인          |
-|  3 | 도서 상세 조회 | 선택한 도서의 제목, 작가명, 본문, 태그, 표지, 작성일, 수정일이 표시되는지 확인 |
-|  4 | 도서 수정    | 수정한 도서 정보가 상세 화면과 목록 화면에 반영되는지 확인               |
-|  5 | 도서 좋아요   | 좋아요 버튼 클릭 시 좋아요 수가 증가하거나 취소되는지 확인               |
-|  6 | 도서 삭제    | 삭제 후 목록에서 해당 도서가 제거되는지 확인                       |
+CloudWatch Logs, Dashboard, Alarm을 통합 구성하여 빌드/배포 로그 수집, 지표 시각화, 이상 상황 감지를 실시간으로 수행할 수 있도록 하였다. 이상 상황 발생 시 SNS를 통해 이메일로 즉시 알림을 받을 수 있도록 구성하여, 사람의 개입을 최소화한 안정적인 운영 환경을 구축하였다.
 
----
+### 13.6 장애 대응 체계 검증
 
-### 10.3 리뷰 CRUD 테스트
+빌드 실패, 배포 실패, 파드 장애 상황을 직접 재현하여 각 상황에서의 원인 분석과 복구 절차(버전 수정, 롤백, Auto Healing)를 검증하였다.
 
-| 순서 | 테스트 항목 | 확인 내용                                |
-| -: | ------ | ------------------------------------ |
-|  1 | 리뷰 등록  | 로그인 후 닉네임과 리뷰 내용을 입력하면 리뷰가 등록되는지 확인  |
-|  2 | 리뷰 조회  | 특정 도서 상세 화면에서 해당 도서의 리뷰 목록이 조회되는지 확인 |
-|  3 | 리뷰 수정  | 수정한 리뷰 내용이 화면에 반영되는지 확인              |
-|  4 | 리뷰 좋아요 | 리뷰 좋아요 버튼 클릭 시 좋아요 수가 증가하거나 취소되는지 확인 |
-|  5 | 리뷰 삭제  | 삭제 후 리뷰 목록에서 해당 리뷰가 제거되는지 확인         |
+## 14. 프로젝트 의의
 
----
+본 프로젝트를 통해 5차 미니프로젝트에서 구현한 Spring Boot 기반 도서관리시스템을 실제 클라우드 운영 환경으로 확장하는 경험을 수행하였다. AWS EKS, CodePipeline, CodeBuild, ECR, RDS, CloudWatch, SNS 등 다양한 AWS 서비스를 연계하여 CI/CD 자동화와 운영 모니터링 체계를 직접 구축하였으며, 오토스케일링과 Rolling Update를 통해 트래픽 변화와 배포 상황에도 안정적으로 동작하는 서비스를 구현하였다.
 
-### 10.4 마이페이지 테스트
-
-| 순서 | 테스트 항목       | 확인 내용                       |
-| -: | ------------ | --------------------------- |
-|  1 | 마이페이지 접근     | 로그인한 사용자만 마이페이지에 접근 가능한지 확인 |
-|  2 | 내가 등록한 도서 조회 | 현재 사용자가 등록한 도서 목록이 표시되는지 확인 |
-|  3 | 내가 작성한 리뷰 조회 | 현재 사용자가 작성한 리뷰 목록이 표시되는지 확인 |
-
----
-
-### 10.5 관리자 페이지 테스트
-
-| 순서 | 테스트 항목    | 확인 내용                                     |
-| -: | --------- | ----------------------------------------- |
-|  1 | 관리자 접근 제한 | `ADMIN` 권한이 아닌 사용자가 관리자 페이지에 접근할 수 없는지 확인 |
-|  2 | 회원 목록 조회  | 관리자 페이지에서 전체 회원 목록이 표시되는지 확인              |
-|  3 | 도서 관리     | 관리자가 전체 도서를 확인하고 삭제할 수 있는지 확인             |
-|  4 | 리뷰 관리     | 관리자가 전체 리뷰를 확인하고 삭제할 수 있는지 확인             |
-
----
-
-### 10.6 AI 표지 및 태그 생성 테스트
-
-| 순서 | 테스트 항목            | 확인 내용                                   |
-| -: | ----------------- | --------------------------------------- |
-|  1 | OpenAI API Key 입력 | 사용자의 OpenAI API Key를 입력한다               |
-|  2 | 표지 생성 요청          | 도서 제목과 내용을 기반으로 이미지 생성 요청을 보낸다          |
-|  3 | 이미지 응답 처리         | OpenAI 응답의 `b64_json` 값을 Data URL로 변환한다 |
-|  4 | 표지 저장             | 변환된 Data URL을 Backend에 저장한다             |
-|  5 | 태그 자동 생성          | 도서 내용을 기반으로 태그가 자동 생성되는지 확인한다           |
-|  6 | 화면 반영             | 생성된 표지와 태그가 도서 상세 화면과 목록 화면에 표시되는지 확인한다 |
-
----
-
-## 11. Postman 테스트 항목
-
-### 11.1 Auth API
-
-| 기능   | Method | URL                                   | 주요 Body                |
-| ---- | ------ | ------------------------------------- | ---------------------- |
-| 회원가입 | POST   | `http://localhost:8080/auth/register` | `username`, `password` |
-| 로그인  | POST   | `http://localhost:8080/auth/login`    | `username`, `password` |
-
-로그인 성공 후 응답으로 받은 token은 인증이 필요한 API 요청의 Header에 포함한다.
-
-```txt
-Authorization: Bearer {token}
-```
-
----
-
-### 11.2 Books API
-
-| 기능       | Method | URL                                      | 주요 Body / Header                                                                     |
-| -------- | ------ | ---------------------------------------- | ------------------------------------------------------------------------------------ |
-| 도서 등록    | POST   | `http://localhost:8080/books`            | Header: `Authorization`, Body: `title`, `author`, `content`, `coverImageUrl`, `tags` |
-| 도서 목록 조회 | GET    | `http://localhost:8080/books`            | 없음                                                                                   |
-| 도서 상세 조회 | GET    | `http://localhost:8080/books/{id}`       | 없음                                                                                   |
-| 도서 수정    | PATCH  | `http://localhost:8080/books/{id}`       | Header: `Authorization`, Body: 수정할 필드                                                |
-| AI 표지 저장 | PATCH  | `http://localhost:8080/books/{id}/cover` | Header: `Authorization`, Body: `coverImageUrl`                                       |
-| 도서 좋아요   | PATCH  | `http://localhost:8080/books/{id}/likes` | Header: `Authorization`                                                              |
-| 도서 삭제    | DELETE | `http://localhost:8080/books/{id}`       | Header: `Authorization`                                                              |
-
----
-
-### 11.3 Reviews API
-
-| 기능          | Method | URL                                             | 주요 Body / Header                                                            |
-| ----------- | ------ | ----------------------------------------------- | --------------------------------------------------------------------------- |
-| 리뷰 등록       | POST   | `http://localhost:8080/reviews`                 | Header: `Authorization`, Body: `bookId`, `bookTitle`, `nickname`, `content` |
-| 전체 리뷰 조회    | GET    | `http://localhost:8080/reviews`                 | 없음                                                                          |
-| 특정 도서 리뷰 조회 | GET    | `http://localhost:8080/reviews?bookId={bookId}` | 없음                                                                          |
-| 리뷰 수정       | PATCH  | `http://localhost:8080/reviews/{id}`            | Header: `Authorization`, Body: 수정할 필드                                       |
-| 리뷰 좋아요      | PATCH  | `http://localhost:8080/reviews/{id}/likes`      | Header: `Authorization`                                                     |
-| 리뷰 삭제       | DELETE | `http://localhost:8080/reviews/{id}`            | Header: `Authorization`                                                     |
-
----
-
-### 11.4 Admin API
-
-| 기능        | Method | URL                                        | 주요 Header                            |
-| --------- | ------ | ------------------------------------------ | ------------------------------------ |
-| 회원 목록 조회  | GET    | `http://localhost:8080/admin/users`        | `Authorization: Bearer {adminToken}` |
-| 관리자 도서 삭제 | DELETE | `http://localhost:8080/admin/books/{id}`   | `Authorization: Bearer {adminToken}` |
-| 관리자 리뷰 삭제 | DELETE | `http://localhost:8080/admin/reviews/{id}` | `Authorization: Bearer {adminToken}` |
-
----
-
-## 12. 예외 처리
-
-본 프로젝트는 전역 예외 처리를 통해 API 오류 응답 형식을 통일하였다.
-
-### 12.1 도서 또는 리뷰를 찾을 수 없는 경우
-
-```json
-{
-  "status": 404,
-  "error": "NOT_FOUND",
-  "message": "도서를 찾을 수 없습니다.",
-  "path": "/books/999",
-  "timestamp": "2026-05-22T10:00:00"
-}
-```
-
-### 12.2 유효성 검증 실패
-
-```json
-{
-  "status": 400,
-  "error": "BAD_REQUEST",
-  "message": "도서명은 필수입니다.",
-  "path": "/books",
-  "timestamp": "2026-05-22T10:00:00"
-}
-```
-
-### 12.3 인증 실패
-
-```json
-{
-  "status": 401,
-  "error": "UNAUTHORIZED",
-  "message": "인증이 필요합니다.",
-  "path": "/books",
-  "timestamp": "2026-05-22T10:00:00"
-}
-```
-
-### 12.4 권한 부족
-
-```json
-{
-  "status": 403,
-  "error": "FORBIDDEN",
-  "message": "접근 권한이 없습니다.",
-  "path": "/admin/users",
-  "timestamp": "2026-05-22T10:00:00"
-}
-```
-
----
-
-## 13. 트러블슈팅
-
-| 문제 상황                                   | 원인                                               | 해결 방법                                                         |
-| --------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------- |
-| React에서 Spring Boot API 호출 시 CORS 오류 발생 | Frontend와 Backend의 포트가 달라 브라우저 보안 정책에 의해 요청 차단   | SecurityConfig 또는 CORS 설정에서 `http://localhost:5173` Origin 허용 |
-| 로그인 후에도 인증 요청 실패                        | Authorization 헤더가 누락되었거나 token 저장이 정상적으로 되지 않음   | 로그인 응답의 token을 localStorage에 저장하고 요청 Header에 `Bearer` 형식으로 포함 |
-| 관리자 페이지 접근 실패                           | 로그인 사용자의 role이 `ADMIN`이 아님                       | 관리자 계정으로 로그인하거나 사용자 role 확인                                   |
-| Frontend 요청이 json-server로 전송됨           | 기존 Frontend 코드의 API 주소가 `localhost:3000`으로 남아 있음 | API 요청 주소를 `http://localhost:8080`으로 수정                       |
-| H2 Console 접속 실패                        | JDBC URL 또는 서버 실행 상태 문제                          | Spring Boot 실행 여부 확인 후 H2 접속 정보 확인                            |
-| 도서 상세 조회 시 404 발생                       | 존재하지 않는 도서 ID 요청                                 | 사용자 정의 예외와 전역 예외 처리로 404 응답 반환                                |
-| 필수 입력값 없이 등록 시 오류 발생                    | 제목, 작가명, 본문 내용 등 필수값 누락                          | 검증 어노테이션과 전역 예외 처리로 400 응답 반환                                 |
-| OpenAI 이미지 생성 실패                        | API Key 미입력 또는 잘못된 Key 사용                        | 사용자의 OpenAI API Key를 입력하고 Authorization 헤더 형식 확인              |
-| GitHub에 API Key가 올라갈 위험                 | API Key를 코드에 하드코딩할 경우 보안 문제 발생                   | API Key는 사용자가 화면에서 직접 입력하고 코드에는 저장하지 않음                       |
-| 표지 이미지가 화면에 바로 반영되지 않음                  | Backend 저장 후 Frontend 상태 갱신 누락                   | 표지 저장 API 호출 후 도서 상세 정보를 다시 조회하거나 상태값 갱신                      |
-
----
-
-## 14. 주요 구현 결과
-
-### 14.1 json-server에서 Spring Boot로 전환
-
-기존 Frontend 미니프로젝트에서 사용하던 `json-server` 기반 임시 API를 Spring Boot Backend로 대체하였다. 이를 통해 도서 데이터가 JPA와 H2 Database를 통해 관리되도록 구현하였다.
-
-### 14.2 회원가입 및 로그인 기능 구현
-
-회원가입과 로그인 기능을 구현하였다. 로그인 성공 시 JWT Token과 사용자명, 권한 정보를 Frontend의 localStorage에 저장하고, 인증이 필요한 요청에 `Authorization: Bearer {token}` 헤더를 포함하도록 구성하였다.
-
-### 14.3 권한 기반 접근 제어 구현
-
-일반 사용자는 도서와 리뷰 기능을 이용할 수 있으며, 관리자 권한을 가진 사용자는 관리자 페이지에서 회원 목록, 도서 목록, 리뷰 목록을 관리할 수 있도록 구현하였다.
-
-### 14.4 도서 CRUD 기능 구현
-
-도서 목록 조회, 상세 조회, 등록, 수정, 삭제 기능을 REST API로 구현하였다. Frontend에서는 fetch API를 통해 Backend와 통신하며, 사용자의 입력 결과가 화면과 데이터베이스에 반영되도록 구성하였다.
-
-### 14.5 도서 및 리뷰 좋아요 기능 구현
-
-도서와 리뷰에 좋아요 기능을 추가하였다. 사용자가 좋아요 버튼을 클릭하면 Backend에 좋아요 요청을 보내고, 변경된 좋아요 수가 화면에 반영되도록 구현하였다.
-
-### 14.6 리뷰 CRUD 기능 구현
-
-도서별 리뷰 작성 및 조회 기능을 구현하였다. 리뷰는 `bookId`를 기준으로 도서와 연결되며, 닉네임과 리뷰 내용을 저장할 수 있다.
-
-### 14.7 AI 표지 이미지 생성 흐름 구현
-
-Frontend에서 OpenAI API를 직접 호출하여 도서 내용에 맞는 표지 이미지를 생성하였다. 생성된 이미지는 Data URL 형식으로 변환한 뒤 Backend에 저장되며, 도서 상세 화면과 목록 화면에서 확인할 수 있다.
-
-### 14.8 AI 태그 자동 생성 기능 구현
-
-도서 내용을 기반으로 OpenAI API를 호출하여 도서의 성격에 맞는 태그를 자동 생성하였다. 사용자는 자동 생성된 태그를 수정하거나 직접 태그를 추가할 수 있다.
-
-### 14.9 예외 처리 구조 적용
-
-도서 또는 리뷰를 찾을 수 없는 경우, 유효성 검증 실패, 인증 실패, 권한 부족 상황에 대해 예외 처리 구조를 적용하였다. 이를 통해 API 오류 응답 형식을 일관되게 유지하였다.
-
-### 14.10 Frontend-Backend 통합
-
-React Frontend와 Spring Boot Backend를 연동하여 회원가입, 로그인, 도서 등록, 조회, 수정, 삭제, 좋아요, 리뷰 관리, AI 표지 저장 흐름을 통합하였다. CORS 설정을 통해 `localhost:5173`에서 `localhost:8080`으로 API 요청이 가능하도록 처리하였다.
-
----
-
-## 15. Postman 및 H2 테스트
-
-### CRUD
-
-1. 생성
-![도서 등록](./screenshots/Postman도서등록.png)
-
-2. 읽기
-![도서 조회](./screenshots/H2도서조회.png)
-
-3. 수정
-![도서 수정](./screenshots/Postman도서수정.png)
-
-4. 삭제
-![도서 삭제](./screenshots/Postman도서삭제.png)
-![도서 삭제 확인](./screenshots/Postman도서삭제확인.png)
-
-### ERROR 확인
-
-1. 404
-![도서404](./screenshots/Postman도서404에러.png)
-
-2. 400
-![작가400](./screenshots/Postman도서작가400에러.png)
-![제목400](./screenshots/Postman도서제목400에러.png)
-
----
-
-## 16. E2E 시연 흐름
-
-### 1. Frontend 접속
-![홈 화면](<./screenshots/E2E 시연 흐름/1. Frontend 접속.png>)
-
-### 3. 회원가입 및 로그인
-![로그인페이지](./screenshots/로그인페이지.png)
-
-### 3. 도서 목록 확인
-![도서 목록](<./screenshots/E2E 시연 흐름/2. 도서 목록 확인.png>)
-
-### 4. 도서 등록 (OpenAI API Key 입력 → AI 표지 생성)
-![도서 등록](<./screenshots/E2E 시연 흐름/3. 도서 등록.png>)
-
-### 5. 도서 상세 페이지 이동
-![도서 상세](<./screenshots/E2E 시연 흐름/4. 도서 상세 페이지 이동.png>)
-
-### 6. 생성된 표지 저장 및 화면 반영
-![표지 반영](<./screenshots/E2E 시연 흐름/5. 생성된 표지 저장 및 화면 반영.png>)
-
-### 7. 도서 좋아요 증가 및 취소
-| 증가 전 | 증가 후 |
-|---|---|
-| ![좋아요 전](<./screenshots/E2E 시연 흐름/6.도서 좋아요 증가 전.png>) | ![좋아요 후](<./screenshots/E2E 시연 흐름/6.도서 좋아요 증가 후.png>) |
-
-### 8. 리뷰 등록
-| 등록 전 | 등록 후 |
-|---|---|
-| ![리뷰 등록 전](<./screenshots/E2E 시연 흐름/7. 리뷰 등록 전.png>) | ![리뷰 등록 후](<./screenshots/E2E 시연 흐름/7. 리뷰 등록 후.png>) |
-
-### 9. 도서 정보 수정
-![도서 수정](<./screenshots/E2E 시연 흐름/8. 도서 정보 수정.png>)
-
-### 10. 리뷰 수정
-| 수정 전 | 수정 후 |
-|---|---|
-| ![리뷰 수정 전](<./screenshots/E2E 시연 흐름/9. 리뷰 수정 전.png>) | ![리뷰 수정 후](<./screenshots/E2E 시연 흐름/9. 리뷰 수정 후.png>) |
-
-### 11. 리뷰 삭제
-| 삭제 전 | 삭제 후 |
-|---|---|
-| ![리뷰 삭제 전](<./screenshots/E2E 시연 흐름/9-2. 리뷰 삭제 전.png>) | ![리뷰 삭제 후](<./screenshots/E2E 시연 흐름/9-2.리뷰 삭제 후.png>) |
-
-### 12. 도서 삭제
-| 삭제 대상 도서 | 삭제 확인 알림 |
-|---|---|
-| ![삭제 전 도서](<./screenshots/E2E 시연 흐름/10. 도서삭제 전 도서.png>) | ![삭제 알림](<./screenshots/E2E 시연 흐름/10. 도서 삭제 알림.png>) |
-
-### 13. 마이페이지 확인
-![마이페이지](./screenshots/마이페이지.png)
-
-### 14. 관리자 페이지 확인
-![관리자페이지](./screenshots/관리자페이지_최신.png)
-
----
-
-## 17. 프로젝트 의의
-
-본 프로젝트를 통해 단순한 정적 데이터 관리 방식에서 벗어나 Spring Boot 기반의 Backend API 서버를 직접 구현하였다. 또한 React와 Spring Boot의 통신 구조를 이해하고, JPA를 활용한 데이터 영속성 처리와 전역 예외 처리 구조를 적용하였다.
-
-AI 표지 생성 기능을 통해 외부 API를 실제 서비스 흐름에 연결하는 경험을 수행했으며, 도서 등록부터 AI 표지 생성, 저장, 화면 반영까지 이어지는 전체 E2E 흐름을 구현하였다.
+또한 오토스케일링 메트릭 수집 실패, 빌드 실패, 배포 실패 등 실제 장애 상황을 재현하고 단계적으로 원인을 추적하여 해결함으로써, 운영 환경에서 발생할 수 있는 문제에 대한 트러블슈팅 역량을 강화하였다.
